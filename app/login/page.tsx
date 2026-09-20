@@ -14,5 +14,5 @@ export default async function LoginPage() {
   if (getLocalAdminEmail(requestHeaders.get('cookie'))) redirect('/');
   const session = await auth.api.getSession({ headers: requestHeaders });
   if (session && isAllowedAdmin(session.user.email, env.adminEmails)) redirect('/');
-  return <LoginForm blockedEmail={session?.user.email} />;
+  return <LoginForm blockedEmail={session?.user.email} googleEnabled={env.googleEnabled} />;
 }

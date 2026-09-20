@@ -25,7 +25,7 @@ export const auth = betterAuth({
     minPasswordLength: 8,
     maxPasswordLength: 128,
   },
-  socialProviders: {
+  socialProviders: env.googleEnabled ? {
     google: {
       clientId: env.googleClientId,
       clientSecret: env.googleClientSecret,
@@ -40,7 +40,7 @@ export const auth = betterAuth({
         return {};
       },
     },
-  },
+  } : {},
   account: {
     accountLinking: {
       enabled: true,

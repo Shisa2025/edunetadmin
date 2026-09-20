@@ -6,7 +6,13 @@ import { FormEvent, useState } from 'react';
 import { authClient } from '@/lib/auth-client';
 import { SignOutButton } from '@/components/sign-out-button';
 
-export function LoginForm({ blockedEmail }: { blockedEmail?: string }) {
+export function LoginForm({
+  blockedEmail,
+  googleEnabled,
+}: {
+  blockedEmail?: string;
+  googleEnabled: boolean;
+}) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState<'email' | 'google' | null>(null);
@@ -93,29 +99,33 @@ export function LoginForm({ blockedEmail }: { blockedEmail?: string }) {
                   Sign in
                 </button>
               </form>
-              <div className="my-5 flex items-center gap-3 text-xs font-bold uppercase tracking-widest text-slate-400">
-                <span className="h-px flex-1 bg-slate-200" />or<span className="h-px flex-1 bg-slate-200" />
-              </div>
-              <button
-                type="button"
-                disabled={busy !== null}
-                onClick={async () => {
-                  setBusy('google');
-                  setError('');
-                  const result = await authClient.signIn.social({
-                    provider: 'google',
-                    callbackURL: window.location.origin,
-                  });
-                  if (result?.error) {
-                    setError(result.error.message || 'Could not start Google sign in.');
-                    setBusy(null);
-                  }
-                }}
-                className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-              >
-                {busy === 'google' && <LoaderCircle className="h-4 w-4 animate-spin" />}
-                Continue with Google
-              </button>
+              {googleEnabled && (
+                <>
+                  <div className="my-5 flex items-center gap-3 text-xs font-bold uppercase tracking-widest text-slate-400">
+                    <span className="h-px flex-1 bg-slate-200" />or<span className="h-px flex-1 bg-slate-200" />
+                  </div>
+                  <button
+                    type="button"
+                    disabled={busy !== null}
+                    onClick={async () => {
+                      setBusy('google');
+                      setError('');
+                      const result = await authClient.signIn.social({
+                        provider: 'google',
+                        callbackURL: window.location.origin,
+                      });
+                      if (result?.error) {
+                        setError(result.error.message || 'Could not start Google sign in.');
+                        setBusy(null);
+                      }
+                    }}
+                    className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    {busy === 'google' && <LoaderCircle className="h-4 w-4 animate-spin" />}
+                    Continue with Google
+                  </button>
+                </>
+              )}
             </>
           )}
         </div>

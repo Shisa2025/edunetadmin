@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { isAllowedAdmin } from '@/lib/admin-access';
 import { env } from '@/lib/env';
 import {
   createLocalAdminToken,
@@ -9,24 +10,22 @@ import {
 
 export const LOCAL_ADMIN_COOKIE = 'edunets-admin-local';
 
-export function localAdminEnabled() {
-  return env.isDevelopment && Boolean(env.localAdminEmail && env.localAdminPassword);
-}
-
 export function matchLocalAdmin(email: string, password: string) {
-  return localAdminEnabled()
-    && credentialsMatch(email, password, env.localAdminEmail, env.localAdminPassword);
+  return env.adminEmails.some((expectedEmail) => (
+    credentialsMatch(email, password, expectedEmail, env.adminPassword)
+  ));
 }
 
-export function issueLocalAdminToken() {
-  return createLocalAdminToken(env.localAdminEmail, env.authSecret);
+export function issueLocalAdminToken(email: string) {
+  return createLocalAdminToken(email.trim().toLowerCase(), env.authSecret);
 }
 
 export function getLocalAdminEmail(cookieHeader: string | null) {
-  if (!localAdminEnabled() || !cookieHeader) return null;
+  if (!cookieHeader) return null;
   const token = cookieHeader
     .split(';')
     .map((part) => part.trim().split('='))
     .find(([name]) => name === LOCAL_ADMIN_COOKIE)?.slice(1).join('=');
-  return verifyLocalAdminToken(token, env.localAdminEmail, env.authSecret);
+  const email = verifyLocalAdminToken(token, env.authSecret);
+  return isAllowedAdmin(email, env.adminEmails) ? email : null;
 }

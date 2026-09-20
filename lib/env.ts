@@ -8,11 +8,13 @@ const environment = z.object({
   BETTER_AUTH_URL: z.url().default('http://localhost:3001'),
   BETTER_AUTH_SECRET: z.string().min(32),
   ADMIN_EMAILS: z.string().min(1),
-  GOOGLE_CLIENT_ID: z.string().min(1),
-  GOOGLE_CLIENT_SECRET: z.string().min(1),
-  LOCAL_ADMIN_EMAIL: z.string().default(''),
-  LOCAL_ADMIN_PASSWORD: z.string().default(''),
-}).parse(process.env);
+  ADMIN_PASSWORD: z.string().min(16),
+  GOOGLE_CLIENT_ID: z.string().default(''),
+  GOOGLE_CLIENT_SECRET: z.string().default(''),
+}).refine(
+  (value) => Boolean(value.GOOGLE_CLIENT_ID) === Boolean(value.GOOGLE_CLIENT_SECRET),
+  { path: ['GOOGLE_CLIENT_SECRET'], message: 'Google client ID and secret must be set together.' },
+).parse(process.env);
 
 export const env = Object.freeze({
   databaseUrl: environment.DATABASE_URL,
@@ -23,9 +25,8 @@ export const env = Object.freeze({
     .split(',')
     .map((email) => email.trim().toLowerCase())
     .filter(Boolean))],
+  adminPassword: environment.ADMIN_PASSWORD,
   googleClientId: environment.GOOGLE_CLIENT_ID,
   googleClientSecret: environment.GOOGLE_CLIENT_SECRET,
-  localAdminEmail: environment.LOCAL_ADMIN_EMAIL.trim().toLowerCase(),
-  localAdminPassword: environment.LOCAL_ADMIN_PASSWORD,
-  isDevelopment: process.env.NODE_ENV === 'development',
+  googleEnabled: Boolean(environment.GOOGLE_CLIENT_ID && environment.GOOGLE_CLIENT_SECRET),
 });

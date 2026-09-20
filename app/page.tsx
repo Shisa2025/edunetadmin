@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
 export default async function HomePage() {
   const requestHeaders = await headers();
   const localEmail = getLocalAdminEmail(requestHeaders.get('cookie'));
-  if (localEmail) return <AdminDashboard adminName="Local Administrator" adminEmail={localEmail} />;
+  if (localEmail) return <AdminDashboard adminName="Administrator" adminEmail={localEmail} />;
   const session = await auth.api.getSession({ headers: requestHeaders });
   if (!session) redirect('/login');
   if (!isAllowedAdmin(session.user.email, env.adminEmails)) redirect('/login');

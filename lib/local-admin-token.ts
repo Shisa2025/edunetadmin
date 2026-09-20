@@ -31,7 +31,6 @@ export function createLocalAdminToken(email: string, secret: string, now = Date.
 
 export function verifyLocalAdminToken(
   token: string | undefined,
-  expectedEmail: string,
   secret: string,
   now = Date.now(),
 ): string | null {
@@ -44,7 +43,6 @@ export function verifyLocalAdminToken(
       expiresAt?: unknown;
     };
     if (typeof data.email !== 'string'
-      || data.email !== expectedEmail
       || typeof data.expiresAt !== 'number'
       || data.expiresAt <= Math.floor(now / 1000)) return null;
     return data.email;

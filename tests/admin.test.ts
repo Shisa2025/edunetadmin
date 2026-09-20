@@ -15,13 +15,13 @@ describe('admin access', () => {
     expect(isAllowedAdmin(null, ['admin@example.com'])).toBe(false);
   });
 
-  it('signs, verifies, and expires local-only administrator sessions', () => {
+  it('signs, verifies, and expires fixed-password administrator sessions', () => {
     const now = Date.UTC(2026, 8, 18);
     const secret = 'test-secret-that-is-at-least-thirty-two-characters';
     const token = createLocalAdminToken('admin@local.test', secret, now);
-    expect(verifyLocalAdminToken(token, 'admin@local.test', secret, now)).toBe('admin@local.test');
-    expect(verifyLocalAdminToken(`${token}x`, 'admin@local.test', secret, now)).toBeNull();
-    expect(verifyLocalAdminToken(token, 'admin@local.test', secret, now + 9 * 60 * 60 * 1000)).toBeNull();
+    expect(verifyLocalAdminToken(token, secret, now)).toBe('admin@local.test');
+    expect(verifyLocalAdminToken(`${token}x`, secret, now)).toBeNull();
+    expect(verifyLocalAdminToken(token, secret, now + 9 * 60 * 60 * 1000)).toBeNull();
     expect(credentialsMatch(' ADMIN@LOCAL.TEST ', 'secret', 'admin@local.test', 'secret')).toBe(true);
     expect(credentialsMatch('admin@local.test', 'wrong', 'admin@local.test', 'secret')).toBe(false);
   });

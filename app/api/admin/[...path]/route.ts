@@ -50,7 +50,7 @@ async function readBody(request: Request): Promise<unknown> {
 
 async function requireAdmin(request: Request) {
   const localEmail = getLocalAdminEmail(request.headers.get('cookie'));
-  if (localEmail) return { user: { email: localEmail, name: 'Local Administrator' } };
+  if (localEmail) return { user: { email: localEmail, name: 'Administrator' } };
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) throw new AdminApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
   if (!isAllowedAdmin(session.user.email, env.adminEmails)) {

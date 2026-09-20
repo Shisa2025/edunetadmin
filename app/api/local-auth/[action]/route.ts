@@ -5,7 +5,6 @@ import { env } from '@/lib/env';
 import {
   issueLocalAdminToken,
   LOCAL_ADMIN_COOKIE,
-  localAdminEnabled,
   matchLocalAdmin,
 } from '@/lib/local-admin';
 
@@ -31,9 +30,6 @@ export async function POST(request: Request, context: Context) {
     return Response.json({ ok: true });
   }
   if (action !== 'login') return Response.json({ error: { message: 'Route not found.' } }, { status: 404 });
-  if (!localAdminEnabled()) {
-    return Response.json({ error: { message: 'Local administrator login is disabled.' } }, { status: 404 });
-  }
 
   const input = loginSchema.safeParse(await request.json().catch(() => null));
   if (!input.success || !matchLocalAdmin(input.data.email, input.data.password)) {
@@ -41,10 +37,10 @@ export async function POST(request: Request, context: Context) {
   }
   cookieStore.set({
     name: LOCAL_ADMIN_COOKIE,
-    value: issueLocalAdminToken(),
+    value: issueLocalAdminToken(input.data.email),
     httpOnly: true,
     sameSite: 'lax',
-    secure: false,
+    secure: env.authUrl.startsWith('https://'),
     path: '/',
     maxAge: 8 * 60 * 60,
   });
