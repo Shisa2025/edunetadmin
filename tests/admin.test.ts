@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import { isAllowedAdmin } from '../lib/admin-access';
-import { classInputSchema, studentClassInputSchema, teacherScopesInputSchema } from '../lib/admin-input';
+import {
+  classInputSchema,
+  passwordInputSchema,
+  studentClassInputSchema,
+  teacherScopesInputSchema,
+  userUpdateInputSchema,
+} from '../lib/admin-input';
 import {
   createLocalAdminToken,
   credentialsMatch,
@@ -51,5 +57,37 @@ describe('Class assignment inputs', () => {
       ],
     }).success).toBe(false);
     expect(studentClassInputSchema.safeParse({ classId: 'class-4a', studentId: 'other' }).success).toBe(false);
+  });
+});
+
+describe('user profile inputs', () => {
+  const valid = {
+    name: ' Jane Tan ',
+    email: ' Jane@School.EDU ',
+    emailVerified: true,
+    image: '',
+    signupReferralCode: null,
+    profile: { role: 'teacher', schoolId: 'school-1', onboardingCompleted: false },
+  };
+
+  it('normalizes names and emails and stores blank optional text as null', () => {
+    expect(userUpdateInputSchema.parse(valid)).toEqual({
+      ...valid,
+      name: 'Jane Tan',
+      email: 'jane@school.edu',
+      image: null,
+    });
+  });
+
+  it('rejects unknown roles, invalid emails, and extra identity fields', () => {
+    expect(userUpdateInputSchema.safeParse({ ...valid, profile: { ...valid.profile, role: 'admin' } }).success).toBe(false);
+    expect(userUpdateInputSchema.safeParse({ ...valid, email: 'not-an-email' }).success).toBe(false);
+    expect(userUpdateInputSchema.safeParse({ ...valid, id: 'someone-else' }).success).toBe(false);
+  });
+
+  it('enforces the EduNets password length limits', () => {
+    expect(passwordInputSchema.safeParse({ password: 'short', revokeSessions: true }).success).toBe(false);
+    expect(passwordInputSchema.safeParse({ password: 'long-enough', revokeSessions: false }).success).toBe(true);
+    expect(passwordInputSchema.safeParse({ password: 'x'.repeat(129), revokeSessions: true }).success).toBe(false);
   });
 });

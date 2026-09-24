@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
+import { hashPassword } from 'better-auth/crypto';
 import type { PoolClient } from 'pg';
 import { ZodError } from 'zod';
 
@@ -7,8 +8,10 @@ import { isAllowedAdmin } from '@/lib/admin-access';
 import {
   classInputSchema,
   identifierSchema,
+  passwordInputSchema,
   studentClassInputSchema,
   teacherScopesInputSchema,
+  userUpdateInputSchema,
 } from '@/lib/admin-input';
 import type {
   Catalog,
@@ -19,6 +22,8 @@ import type {
   Subject,
   Teacher,
   TeacherAssignment,
+  UserDetail,
+  UserSummary,
 } from '@/lib/admin-types';
 import { auth } from '@/lib/auth';
 import { pool } from '@/lib/db';
@@ -284,13 +289,150 @@ async function updateTeacherScopes(teacherId: string, request: Request) {
   return json({ ok: true });
 }
 
+async function searchUsers(request: Request) {
+  const query = (new URL(request.url).searchParams.get('q') ?? '').trim().slice(0, 120);
+  const pattern = `%${query.replace(/[\\%_]/g, (character) => `\\${character}`)}%`;
+  const result = await pool.query<UserSummary>(`
+    SELECT u.id, u.name, u.email, p.role, p.school_id AS "schoolId", s.name AS "schoolName"
+    FROM "user" u
+    LEFT JOIN profile p ON p.user_id = u.id
+    LEFT JOIN schools s ON s.id = p.school_id
+    WHERE $1 = '' OR u.id = $1 OR u.name ILIKE $2 OR u.email ILIKE $2
+    ORDER BY u.name, u.email
+    LIMIT 50
+  `, [query, pattern]);
+  return json({ users: result.rows });
+}
+
+async function getUserDetail(userId: string): Promise<UserDetail> {
+  const userResult = await pool.query<UserDetail['user']>(`
+    SELECT id, name, email, email_verified AS "emailVerified", image, "class" AS "className",
+      signup_referral_code AS "signupReferralCode", created_at AS "createdAt", updated_at AS "updatedAt"
+    FROM "user" WHERE id = $1 LIMIT 1
+  `, [userId]);
+  const user = userResult.rows[0];
+  if (!user) throw new AdminApiError(404, 'USER_NOT_FOUND', 'User was not found.');
+
+  const [profileResult, accountsResult, sessionsResult, assignmentResult, scopesResult] = await Promise.all([
+    pool.query<NonNullable<UserDetail['profile']>>(`
+      SELECT role, school_id AS "schoolId", onboarding_completed AS "onboardingCompleted",
+        onboarding_completed_at AS "onboardingCompletedAt", updated_at AS "updatedAt"
+      FROM profile WHERE user_id = $1 LIMIT 1
+    `, [userId]),
+    pool.query<{ providerId: string; createdAt: string; hasPassword: boolean }>(`
+      SELECT provider_id AS "providerId", created_at AS "createdAt", password IS NOT NULL AS "hasPassword"
+      FROM account WHERE user_id = $1 ORDER BY created_at
+    `, [userId]),
+    pool.query<{ count: number }>(
+      'SELECT count(*)::int AS count FROM session WHERE user_id = $1 AND expires_at > now()',
+      [userId],
+    ),
+    pool.query<{ classId: string; className: string }>(`
+      SELECT c.id AS "classId", c.name AS "className"
+      FROM student_class_assignment a INNER JOIN school_class c ON c.id = a.class_id
+      WHERE a.student_user_id = $1 LIMIT 1
+    `, [userId]),
+    pool.query<{ count: number }>('SELECT count(*)::int AS count FROM teaching_scope WHERE user_id = $1', [userId]),
+  ]);
+  return {
+    user,
+    profile: profileResult.rows[0] ?? null,
+    signInMethods: accountsResult.rows.map(({ providerId, createdAt }) => ({ providerId, createdAt })),
+    hasPassword: accountsResult.rows.some((account) => account.providerId === 'credential' && account.hasPassword),
+    activeSessions: sessionsResult.rows[0]?.count ?? 0,
+    classAssignment: assignmentResult.rows[0] ?? null,
+    teachingScopeCount: scopesResult.rows[0]?.count ?? 0,
+  };
+}
+
+async function updateUser(userId: string, request: Request) {
+  const input = userUpdateInputSchema.parse(await readBody(request));
+  await withTransaction(async (client) => {
+    const userResult = await client.query('SELECT 1 FROM "user" WHERE id = $1 FOR UPDATE', [userId]);
+    if (userResult.rowCount === 0) throw new AdminApiError(404, 'USER_NOT_FOUND', 'User was not found.');
+    const emailTaken = await client.query(
+      'SELECT 1 FROM "user" WHERE lower(email) = $1 AND id <> $2 LIMIT 1',
+      [input.email, userId],
+    );
+    if (emailTaken.rowCount) throw new AdminApiError(409, 'EMAIL_EXISTS', 'Another user already uses this email address.');
+
+    const profileResult = await client.query<{ role: string; schoolId: string }>(
+      'SELECT role, school_id AS "schoolId" FROM profile WHERE user_id = $1 FOR UPDATE',
+      [userId],
+    );
+    const current = profileResult.rows[0];
+    if (current && !input.profile) {
+      throw new AdminApiError(400, 'PROFILE_REQUIRED', 'An existing profile cannot be removed.');
+    }
+
+    await client.query(`
+      UPDATE "user"
+      SET name = $2, email = $3, email_verified = $4, image = $5, signup_referral_code = $6, updated_at = now()
+      WHERE id = $1
+    `, [userId, input.name, input.email, input.emailVerified, input.image, input.signupReferralCode]);
+
+    if (!input.profile) return;
+    const school = await client.query('SELECT 1 FROM schools WHERE id = $1', [input.profile.schoolId]);
+    if (school.rowCount === 0) throw new AdminApiError(404, 'SCHOOL_NOT_FOUND', 'School was not found.');
+
+    // Class and teaching assignments belong to one school and one role, so they cannot survive a move.
+    if (current && (current.role !== input.profile.role || current.schoolId !== input.profile.schoolId)) {
+      await client.query('DELETE FROM student_class_assignment WHERE student_user_id = $1', [userId]);
+      await client.query('DELETE FROM teaching_scope WHERE user_id = $1', [userId]);
+      await client.query(`UPDATE "user" SET "class" = '' WHERE id = $1`, [userId]);
+    }
+    await client.query(`
+      INSERT INTO profile (user_id, role, school_id, onboarding_completed, onboarding_completed_at, updated_at)
+      VALUES ($1, $2, $3, $4, CASE WHEN $4 THEN now() END, now())
+      ON CONFLICT (user_id) DO UPDATE SET
+        role = EXCLUDED.role,
+        school_id = EXCLUDED.school_id,
+        onboarding_completed = EXCLUDED.onboarding_completed,
+        onboarding_completed_at = CASE
+          WHEN NOT EXCLUDED.onboarding_completed THEN NULL
+          ELSE coalesce(profile.onboarding_completed_at, now())
+        END,
+        updated_at = now()
+    `, [userId, input.profile.role, input.profile.schoolId, input.profile.onboardingCompleted]);
+  });
+  return json(await getUserDetail(userId));
+}
+
+async function setUserPassword(userId: string, request: Request) {
+  const input = passwordInputSchema.parse(await readBody(request));
+  const hash = await hashPassword(input.password);
+  await withTransaction(async (client) => {
+    const userResult = await client.query('SELECT 1 FROM "user" WHERE id = $1 FOR UPDATE', [userId]);
+    if (userResult.rowCount === 0) throw new AdminApiError(404, 'USER_NOT_FOUND', 'User was not found.');
+    const updated = await client.query(`
+      UPDATE account SET password = $2, updated_at = now()
+      WHERE user_id = $1 AND provider_id = 'credential'
+    `, [userId, hash]);
+    if (updated.rowCount === 0) {
+      // Better Auth stores email/password logins as a 'credential' account whose account_id is the user id.
+      await client.query(`
+        INSERT INTO account (id, account_id, provider_id, user_id, password, created_at, updated_at)
+        VALUES ($1, $2, 'credential', $2, $3, now(), now())
+      `, [randomUUID(), userId, hash]);
+    }
+    if (input.revokeSessions) await client.query('DELETE FROM session WHERE user_id = $1', [userId]);
+  });
+  return json(await getUserDetail(userId));
+}
+
+async function revokeUserSessions(userId: string) {
+  const user = await pool.query('SELECT 1 FROM "user" WHERE id = $1', [userId]);
+  if (user.rowCount === 0) throw new AdminApiError(404, 'USER_NOT_FOUND', 'User was not found.');
+  await pool.query('DELETE FROM session WHERE user_id = $1', [userId]);
+  return json(await getUserDetail(userId));
+}
+
 type RouteContext = { params: Promise<{ path: string[] }> };
 
 async function handle(request: Request, context: RouteContext) {
   try {
     await requireAdmin(request);
-    if ((request.method === 'POST' || request.method === 'PUT')
-      && request.headers.get('origin') !== env.authUrl) {
+    if (request.method !== 'GET' && request.headers.get('origin') !== env.authUrl) {
       throw new AdminApiError(403, 'ORIGIN_NOT_ALLOWED', 'Request origin is not allowed.');
     }
     const { path } = await context.params;
@@ -312,6 +454,14 @@ async function handle(request: Request, context: RouteContext) {
     if (method === 'PUT' && path.length === 3 && path[0] === 'teachers' && path[2] === 'scopes') {
       return await updateTeacherScopes(identifierSchema.parse(path[1]), request);
     }
+    if (method === 'GET' && path.length === 1 && path[0] === 'users') return await searchUsers(request);
+    if (path[0] === 'users' && path.length >= 2) {
+      const userId = identifierSchema.parse(path[1]);
+      if (method === 'GET' && path.length === 2) return json(await getUserDetail(userId));
+      if (method === 'PUT' && path.length === 2) return await updateUser(userId, request);
+      if (method === 'PUT' && path.length === 3 && path[2] === 'password') return await setUserPassword(userId, request);
+      if (method === 'DELETE' && path.length === 3 && path[2] === 'sessions') return await revokeUserSessions(userId);
+    }
     throw new AdminApiError(404, 'NOT_FOUND', 'Route not found.');
   } catch (error) {
     if (error instanceof AdminApiError) {
@@ -321,11 +471,11 @@ async function handle(request: Request, context: RouteContext) {
       return json({ error: { code: 'INVALID_REQUEST', message: 'Request validation failed.' } }, 400);
     }
     if (isUniqueViolation(error)) {
-      return json({ error: { code: 'CLASS_NAME_EXISTS', message: 'A Class with this name already exists at the school.' } }, 409);
+      return json({ error: { code: 'ALREADY_EXISTS', message: 'A record with this value already exists, such as a duplicate Class name.' } }, 409);
     }
     console.error('Admin database request failed.', error instanceof Error ? error.name : 'UnknownError');
     return json({ error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred.' } }, 500);
   }
 }
 
-export { handle as GET, handle as POST, handle as PUT };
+export { handle as DELETE, handle as GET, handle as POST, handle as PUT };

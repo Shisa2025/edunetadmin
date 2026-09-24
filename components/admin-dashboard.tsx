@@ -11,22 +11,18 @@ import {
   Pencil,
   Plus,
   Search,
+  UserCog,
   Users,
   X,
 } from 'lucide-react';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { SignOutButton } from '@/components/sign-out-button';
+import { errorMessage, fieldClass, primaryButton, secondaryButton } from '@/components/ui';
+import { UserDirectory } from '@/components/user-directory';
+import { UserEditor } from '@/components/user-editor';
 import { AdminApiError, apiRequest } from '@/lib/api';
 import type { Catalog, SchoolClass, SchoolOverview, Student, Subject, Teacher } from '@/lib/admin-types';
-
-const fieldClass = 'h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none transition focus:border-[var(--admin-blue)] focus:ring-3 focus:ring-blue-100 disabled:bg-slate-100';
-const primaryButton = 'inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-[var(--admin-blue)] px-4 text-sm font-black text-white hover:bg-[var(--admin-blue-strong)] disabled:cursor-not-allowed disabled:opacity-45';
-const secondaryButton = 'inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45';
-
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : 'The request could not be completed.';
-}
 
 function StatCard({ label, value, icon }: { label: string; value: number; icon: React.ReactNode }) {
   return (
@@ -173,7 +169,7 @@ function ClassManager({ schoolId, classes, refresh }: { schoolId: string; classe
   );
 }
 
-function TeacherRow({ teacher, classes, subjects, refresh }: { teacher: Teacher; classes: SchoolClass[]; subjects: Subject[]; refresh: (message: string) => Promise<void> }) {
+function TeacherRow({ teacher, classes, subjects, refresh, onEditProfile }: { teacher: Teacher; classes: SchoolClass[]; subjects: Subject[]; refresh: (message: string) => Promise<void>; onEditProfile: () => void }) {
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
@@ -215,6 +211,9 @@ function TeacherRow({ teacher, classes, subjects, refresh }: { teacher: Teacher;
           <p className="truncate font-black text-slate-900">{teacher.name}</p>
           <p className="truncate text-sm text-slate-500">{teacher.email}</p>
         </div>
+        <button type="button" onClick={onEditProfile} className={secondaryButton}>
+          <UserCog className="h-4 w-4" /> Profile
+        </button>
         <button type="button" onClick={() => open ? setOpen(false) : beginEdit()} className={secondaryButton}>
           {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           {open ? 'Close' : 'Edit assignments'}
@@ -278,7 +277,7 @@ function TeacherRow({ teacher, classes, subjects, refresh }: { teacher: Teacher;
   );
 }
 
-function StudentRow({ student, classes, refresh }: { student: Student; classes: SchoolClass[]; refresh: (message: string) => Promise<void> }) {
+function StudentRow({ student, classes, refresh, onEditProfile }: { student: Student; classes: SchoolClass[]; refresh: (message: string) => Promise<void>; onEditProfile: () => void }) {
   const [classId, setClassId] = useState(student.classId ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -302,7 +301,7 @@ function StudentRow({ student, classes, refresh }: { student: Student; classes: 
   const changed = classId !== (student.classId ?? '');
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4">
-      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(12rem,18rem)_auto] sm:items-center">
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(12rem,18rem)_auto_auto] sm:items-center">
         <div className="min-w-0">
           <p className="truncate font-black text-slate-900">{student.name}</p>
           <p className="truncate text-sm text-slate-500">{student.email}</p>
@@ -313,6 +312,9 @@ function StudentRow({ student, classes, refresh }: { student: Student; classes: 
         </select>
         <button type="button" disabled={busy || !changed} onClick={() => void save()} className={primaryButton}>
           {busy && <LoaderCircle className="h-4 w-4 animate-spin" />} Save
+        </button>
+        <button type="button" onClick={onEditProfile} className={secondaryButton}>
+          <UserCog className="h-4 w-4" /> Profile
         </button>
       </div>
       {error && <p role="alert" className="mt-2 text-sm font-semibold text-red-700">{error}</p>}
@@ -330,6 +332,8 @@ export function AdminDashboard({ adminName, adminEmail }: { adminName: string; a
   const [notice, setNotice] = useState('');
   const [tab, setTab] = useState<'teachers' | 'students'>('teachers');
   const [search, setSearch] = useState('');
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [directoryVersion, setDirectoryVersion] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -359,8 +363,7 @@ export function AdminDashboard({ adminName, adminEmail }: { adminName: string; a
   }, [schoolId]);
 
   const refresh = useCallback(async (message: string) => {
-    if (!schoolId) return;
-    await loadOverview(schoolId);
+    if (schoolId) await loadOverview(schoolId);
     setNotice(message);
     window.setTimeout(() => setNotice(''), 3500);
   }, [loadOverview, schoolId]);
@@ -380,7 +383,7 @@ export function AdminDashboard({ adminName, adminEmail }: { adminName: string; a
           <span className="grid h-11 w-11 place-items-center rounded-2xl bg-[var(--admin-blue)] text-white"><GraduationCap className="h-6 w-6" /></span>
           <div>
             <p className="font-black text-slate-900">EduNets Admin</p>
-            <p className="text-xs font-bold uppercase tracking-[0.15em] text-cyan-600">Class management</p>
+            <p className="text-xs font-bold uppercase tracking-[0.15em] text-cyan-600">User &amp; class management</p>
           </div>
           <div className="ml-auto hidden text-right sm:block">
             <p className="text-sm font-black text-slate-800">{adminName}</p>
@@ -396,7 +399,7 @@ export function AdminDashboard({ adminName, adminEmail }: { adminName: string; a
             <div>
               <p className="text-xs font-black uppercase tracking-[0.2em] text-cyan-200">Administration workspace</p>
               <h1 className="mt-2 text-3xl font-black">Choose a school</h1>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-blue-100">Manage Classes and assignments only for people already registered at the selected school.</p>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-blue-100">Manage Classes and assignments for the selected school, or edit any user from the directory below.</p>
             </div>
             <label className="block w-full max-w-xl text-sm font-black">
               School
@@ -423,6 +426,10 @@ export function AdminDashboard({ adminName, adminEmail }: { adminName: string; a
 
         {notice && <div role="status" className="mt-5 flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800"><Check className="h-4 w-4" />{notice}</div>}
         {error && <div role="alert" className="mt-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{error}</div>}
+
+        {!loadingCatalog && catalog && (
+          <div className="mt-6"><UserDirectory version={directoryVersion} onEdit={setEditingUserId} /></div>
+        )}
 
         {(loadingCatalog || loadingSchool) && (
           <div className="grid min-h-72 place-items-center"><div className="text-center text-slate-500"><LoaderCircle className="mx-auto h-8 w-8 animate-spin text-[var(--admin-blue)]" /><p className="mt-3 text-sm font-bold">Loading school data…</p></div></div>
@@ -466,8 +473,8 @@ export function AdminDashboard({ adminName, adminEmail }: { adminName: string; a
 
               <div className="mt-5 space-y-3">
                 {tab === 'teachers'
-                  ? (people as Teacher[]).map((teacher) => <TeacherRow key={teacher.id} teacher={teacher} classes={overview.classes} subjects={catalog.subjects} refresh={refresh} />)
-                  : (people as Student[]).map((student) => <StudentRow key={`${student.id}:${student.classId ?? ''}`} student={student} classes={overview.classes} refresh={refresh} />)}
+                  ? (people as Teacher[]).map((teacher) => <TeacherRow key={teacher.id} teacher={teacher} classes={overview.classes} subjects={catalog.subjects} refresh={refresh} onEditProfile={() => setEditingUserId(teacher.id)} />)
+                  : (people as Student[]).map((student) => <StudentRow key={`${student.id}:${student.classId ?? ''}`} student={student} classes={overview.classes} refresh={refresh} onEditProfile={() => setEditingUserId(student.id)} />)}
                 {people.length === 0 && (
                   <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-sm font-semibold text-slate-500">
                     {search ? `No ${tab} match this search.` : `No registered ${tab} at this school.`}
@@ -478,6 +485,18 @@ export function AdminDashboard({ adminName, adminEmail }: { adminName: string; a
           </div>
         )}
       </main>
+
+      {editingUserId && catalog && (
+        <UserEditor
+          userId={editingUserId}
+          schools={catalog.schools}
+          onClose={() => setEditingUserId(null)}
+          onSaved={async (message) => {
+            setDirectoryVersion((value) => value + 1);
+            await refresh(message);
+          }}
+        />
+      )}
     </div>
   );
 }

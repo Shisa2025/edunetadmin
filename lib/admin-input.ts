@@ -29,3 +29,24 @@ export const teacherScopesInputSchema = z.strictObject({
     seen.add(key);
   });
 });
+
+const optionalText = (max: number) => z.string().trim().max(max).nullable()
+  .transform((value) => value || null);
+
+export const userUpdateInputSchema = z.strictObject({
+  name: z.string().trim().min(1).max(120),
+  email: z.string().trim().toLowerCase().pipe(z.email().max(320)),
+  emailVerified: z.boolean(),
+  image: optionalText(2048),
+  signupReferralCode: optionalText(64),
+  profile: z.strictObject({
+    role: z.enum(['student', 'teacher']),
+    schoolId: identifierSchema,
+    onboardingCompleted: z.boolean(),
+  }).nullable(),
+});
+
+export const passwordInputSchema = z.strictObject({
+  password: z.string().min(8).max(128),
+  revokeSessions: z.boolean(),
+});

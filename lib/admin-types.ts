@@ -34,3 +34,37 @@ export type SchoolOverview = {
   teachers: Teacher[];
   students: Student[];
 };
+export type UserRole = 'student' | 'teacher';
+export type UserSummary = {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole | null;
+  schoolId: string | null;
+  schoolName: string | null;
+};
+export type UserDetail = {
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    emailVerified: boolean;
+    image: string | null;
+    className: string;
+    signupReferralCode: string | null;
+    createdAt: string;
+    updatedAt: string;
+  };
+  profile: {
+    role: UserRole;
+    schoolId: string;
+    onboardingCompleted: boolean;
+    onboardingCompletedAt: string | null;
+    updatedAt: string;
+  } | null;
+  signInMethods: { providerId: string; createdAt: string }[];
+  hasPassword: boolean;
+  activeSessions: number;
+  classAssignment: { classId: string; className: string } | null;
+  teachingScopeCount: number;
+};
